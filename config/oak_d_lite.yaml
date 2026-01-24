@@ -1,0 +1,44 @@
+# Oak-D Lite configuration for VIO (minimal, odometry-focused)
+/**:
+  ros__parameters:
+    camera:
+      i_pipeline_type: "Stereo"
+      i_nn_type: "none"  # No neural network - saves compute
+      i_enable_imu: true
+      i_enable_ir: true
+      i_usb_speed: "SUPER_PLUS"  # USB 3.2
+
+    # Left mono camera
+    left:
+      i_publish_topic: true
+      i_resolution: "400P"  # Lower res = faster
+      i_fps: 30
+      i_enable_feature_tracker: false  # Using RTAB-Map instead
+
+    # Right mono camera
+    right:
+      i_publish_topic: true
+      i_resolution: "400P"
+      i_fps: 30
+      i_enable_feature_tracker: false
+
+    # Stereo depth
+    stereo:
+      i_publish_topic: true
+      i_output_disparity: false
+      i_depth_preset: "HIGH_ACCURACY"
+      i_subpixel: true
+      i_lr_check: true
+      i_align_depth: true
+      i_publish_synced_rect_pair: true  # RTAB-Map needs rectified stereo
+
+    # RGB (disabled to save bandwidth/compute)
+    rgb:
+      i_publish_topic: false
+
+    # IMU
+    imu:
+      i_publish_topic: true
+      i_acc_freq: 200
+      i_gyro_freq: 200
+      i_enable_gravity_compensation: true

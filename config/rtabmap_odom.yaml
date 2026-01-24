@@ -1,0 +1,41 @@
+# RTAB-Map stereo odometry config (odometry only, no SLAM)
+/**:
+  ros__parameters:
+    # Frame IDs
+    frame_id: "base_link"
+    odom_frame_id: "odom"
+    publish_tf: true
+    wait_for_transform_duration: 0.2
+
+    # Use stereo images
+    subscribe_stereo: true
+    subscribe_depth: false
+    subscribe_rgbd: false
+    approx_sync: true
+    queue_size: 10
+
+    # IMU integration (optional but helps)
+    subscribe_imu: true
+    wait_imu_to_init: true  # Wait for IMU before starting
+
+    # Odometry settings
+    Odom/Strategy: "0"        # 0=Frame-to-Map (more robust)
+    Odom/EstimationType: "1"  # 1=3DoF+scale for motion estimation
+    Odom/MinInliers: "10"
+    Odom/MaxFeatures: "500"   # Reduce for faster processing
+    Odom/ResetCountdown: "1"
+
+    # Feature detection (ORB is fast)
+    Vis/FeatureType: "8"      # 8=ORB
+    Vis/MaxFeatures: "500"
+    Vis/MinInliers: "15"
+
+    # Stereo matching
+    Stereo/MaxDisparity: "128"
+    Stereo/MinDisparity: "0"
+    Stereo/OpticalFlow: "true"
+
+    # Performance tuning for Pi5
+    Odom/KeyFrameThr: "0.3"   # New keyframe threshold
+    Odom/ScanKeyFrameThr: "0.7"
+    Vis/CorNNDR: "0.6"        # Nearest neighbor distance ratio
