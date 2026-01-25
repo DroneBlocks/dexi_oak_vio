@@ -1,0 +1,4 @@
+# Mac test scripts dependencies
+depthai>=2.24.0,<3.0.0  # v2 API (v3 has breaking changes)
+numpy
+opencv-python  # Optional, for visual test only

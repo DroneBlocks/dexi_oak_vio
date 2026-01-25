@@ -48,10 +48,12 @@ class OakFlowNode(Node):
         self.declare_parameter('camera_fy', 400.0)
         self.declare_parameter('min_features', 10)
         self.declare_parameter('publish_rate', 30.0)
+        self.declare_parameter('enable_imu_compensation', True)  # Enabled with corrected signs
 
         self.fx = self.get_parameter('camera_fx').value
         self.fy = self.get_parameter('camera_fy').value
         self.min_features = self.get_parameter('min_features').value
+        self.enable_imu_compensation = self.get_parameter('enable_imu_compensation').value
 
         # Publisher
         self.twist_pub = self.create_publisher(
@@ -68,6 +70,7 @@ class OakFlowNode(Node):
 
         self.get_logger().info('OAK Flow Node starting...')
         self.get_logger().info(f'  Publishing to: /oak/flow/twist')
+        self.get_logger().info(f'  IMU compensation: {self.enable_imu_compensation}')
 
         # Start camera thread
         self.camera_thread = threading.Thread(target=self.camera_loop, daemon=True)
@@ -161,10 +164,14 @@ class OakFlowNode(Node):
                 dx = x - px
                 dy = y - py
 
-                # Remove rotation
-                dx_rot = self.fx * gyro[1] * dt
-                dy_rot = -self.fy * gyro[0] * dt
-                compensated_flow.append((dx - dx_rot, dy - dy_rot))
+                if self.enable_imu_compensation:
+                    # Remove rotation (OAK-D Lite IMU frame)
+                    # Testing: try gyro[1] for yaw (horizontal compensation)
+                    dx_rot = self.fx * gyro[1] * dt   # Try Y axis for yaw
+                    dy_rot = self.fy * gyro[0] * dt   # Try X axis for pitch
+                    compensated_flow.append((dx - dx_rot, dy - dy_rot))
+                else:
+                    compensated_flow.append((dx, dy))
 
         self.prev_features = current
         self.prev_time = timestamp
@@ -190,9 +197,11 @@ class OakFlowNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'oak_link'
 
-        # Body frame: x=forward, y=left
-        msg.twist.twist.linear.x = float(vx)
-        msg.twist.twist.linear.y = float(-vy)
+        # Body frame: x=forward, y=left, z=up
+        # vx = horizontal pixel motion = left/right camera movement
+        # vy = vertical pixel motion = up/down camera movement (or forward if tilted down)
+        msg.twist.twist.linear.x = float(vy)   # Forward from vertical flow (flipped)
+        msg.twist.twist.linear.y = float(-vx)  # Left from horizontal flow
         msg.twist.twist.linear.z = 0.0
 
         # Covariance

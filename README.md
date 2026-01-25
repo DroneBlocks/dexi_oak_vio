@@ -16,37 +16,37 @@ This package provides optical flow velocity estimation using the OAK-D Lite came
 - **Standalone node** - Direct camera connection, no depthai_ros dependency required
 - **PX4 bridge** - Optional bridge to send velocity to PX4 via uXRCE-DDS
 
-## Quick Start (Raspberry Pi 5)
+## Installation
 
 ### Prerequisites
 
-```bash
-# Create virtual environment for depthai
-python3 -m venv ~/oak_venv
-source ~/oak_venv/bin/activate
-pip install depthai numpy
+depthai must be installed system-wide on the Pi:
 
-# Set up udev rules for OAK camera
+```bash
+pip install depthai numpy
+```
+
+Set up udev rules for OAK camera:
+
+```bash
 echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="03e7", MODE="0666"' | sudo tee /etc/udev/rules.d/80-movidius.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-### Running the Node
+### Build
 
 ```bash
-# Activate virtual environment and ROS2
-source ~/oak_venv/bin/activate
-source ~/dexi_ws/install/setup.bash
+cd ~/dexi_ws/src
+git clone <repo-url> dexi_oak_vio
 
-# Run the optical flow node
-python3 ~/dexi_oak_vio/dexi_oak_vio/oak_flow_node.py
+cd ~/dexi_ws
+colcon build --packages-select dexi_oak_vio
+source install/setup.bash
 ```
 
-The node publishes to `/oak/flow/twist` (TwistWithCovarianceStamped).
+### Enable in DEXI
 
-### Integration with DEXI Launch System
-
-Add to `~/.dexi-config.yaml`:
+Edit `~/.dexi-config.yaml`:
 
 ```yaml
 nodes:
@@ -54,7 +54,42 @@ nodes:
     enabled: true
 ```
 
-The DEXI bringup launch file will automatically start the oak_flow_node when `oak_flow:=true`.
+Restart the service:
+
+```bash
+sudo systemctl restart dexi
+```
+
+## Flight Day Checklist
+
+1. **Verify node is running:**
+   ```bash
+   pgrep -af oak_flow_node
+   ```
+
+2. **Check topic is publishing (~30 Hz):**
+   ```bash
+   ros2 topic hz /oak/flow/twist
+   ```
+
+3. **View in Foxglove** (from laptop):
+   - Connection: **Rosbridge (ROS 1 & 2)** at `ws://<pi-ip>:9090`
+   - Plot: `/oak/flow/twist.twist.twist.linear.x`
+
+4. **Hand test:** Move camera, verify velocity direction is correct.
+
+### Troubleshooting
+
+```bash
+# Camera in use
+pkill -f oak_flow && pkill -f depthai
+
+# Restart
+sudo systemctl restart dexi
+
+# Check USB
+lsusb | grep 03e7
+```
 
 ## Architecture
 
@@ -82,54 +117,16 @@ The DEXI bringup launch file will automatically start the oak_flow_node when `oa
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Testing on Desktop (Mac/PC)
+## Configuration
 
-Test the camera and feature tracking before deploying to Pi:
+### oak_flow_node Parameters
 
-```bash
-cd scripts
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Basic feature tracker test
-python test_feature_tracker.py
-
-# Visual test with OpenCV display
-python test_feature_visual.py
-
-# Simulate full ROS2 pipeline (no ROS2 needed)
-python test_ros2_sim.py
-```
-
-## ROS2 Package (Optional)
-
-For full ROS2 integration with launch files:
-
-### Installation
-
-```bash
-cd ~/dexi_ws/src
-# Copy this package to your workspace
-
-# Build
-cd ~/dexi_ws
-colcon build --packages-select dexi_oak_vio
-source install/setup.bash
-```
-
-### Launch Files
-
-```bash
-# Feature tracker mode (recommended)
-ros2 launch dexi_oak_vio feature_tracker.launch.py
-
-# With robot_localization fusion
-ros2 launch dexi_oak_vio feature_tracker.launch.py use_robot_localization:=true
-
-# Full VIO mode with RTAB-Map (heavier compute)
-ros2 launch dexi_oak_vio vio_px4.launch.py
-```
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `camera_fx` | 400.0 | Focal length X (pixels) |
+| `camera_fy` | 400.0 | Focal length Y (pixels) |
+| `min_features` | 10 | Minimum features for valid estimate |
+| `enable_imu_compensation` | true | Subtract rotation from flow |
 
 ## PX4 Integration
 
@@ -148,21 +145,25 @@ ros2 launch dexi_oak_vio vio_px4.launch.py
 | `EKF2_OF_CTRL` | 1 | Keep optical flow on |
 | `EKF2_OF_QMIN` | 1 | Quality threshold |
 
-## Configuration
+## Testing on Desktop (Mac/PC)
 
-### oak_flow_node.py Parameters
+Test the camera before deploying:
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `min_features` | 10 | Minimum features for velocity estimate |
-| `camera_fx/fy` | 400.0 | Focal length (adjust for calibration) |
-| `flow_scale` | 1.0 | Velocity output scale |
+```bash
+cd scripts
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-### robot_localization.yaml
+python test_feature_tracker.py      # Basic test
+python test_feature_visual.py       # With OpenCV display
+```
 
-For ROS2 sensor fusion mode, edit `config/robot_localization.yaml`:
-- `twist0_rejection_threshold`: Outlier rejection for Oak-D
-- `twist1_rejection_threshold`: Outlier rejection for ARK Flow
+## Topics
+
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/oak/flow/twist` | `TwistWithCovarianceStamped` | Velocity estimate |
 
 ## File Structure
 
@@ -174,52 +175,23 @@ dexi_oak_vio/
 │   └── robot_localization.yaml  # EKF fusion config
 ├── dexi_oak_vio/
 │   ├── __init__.py
-│   ├── feature_tracker_flow.py  # Features → velocity (ROS2 node)
-│   ├── oak_flow_node.py         # Standalone flow node (recommended)
+│   ├── feature_tracker_flow.py  # Requires depthai_ros
+│   ├── oak_flow_node.py         # Standalone (recommended)
 │   └── px4_dds_bridge.py        # ROS2 ↔ PX4 bridge
 ├── launch/
 │   ├── feature_tracker.launch.py
 │   └── vio_px4.launch.py
 ├── scripts/                     # Desktop test scripts
-│   ├── test_feature_tracker.py
-│   ├── test_feature_visual.py
-│   ├── test_ros2_sim.py
-│   └── requirements.txt
 ├── resource/
 ├── package.xml
 ├── setup.py
 └── README.md
 ```
 
-## Troubleshooting
-
-### No features detected
-- Point camera at a textured surface (bookshelf, poster, carpet)
-- Check USB connection: `lsusb | grep 03e7`
-
-### Camera already in use
-```bash
-pkill -f oak_flow
-pkill -f depthai
-```
-
-### Velocity spikes during rotation
-- Verify IMU compensation is working
-- Check camera mount orientation matches expected coordinate frame
-
-### USB 2.0 speed (expected on OAK-D Lite)
-The OAK-D Lite is a USB 2.0 device by design. This is normal and sufficient for optical flow.
-
-## Topics
-
-| Topic | Type | Description |
-|-------|------|-------------|
-| `/oak/flow/twist` | `TwistWithCovarianceStamped` | Velocity estimate |
-
 ## Hardware
 
-- **Camera:** OAK-D Lite (USB 2.0, 480 Mbps)
-- **Processor:** Raspberry Pi 5 (4GB+ recommended)
+- **Camera:** OAK-D Lite (USB 2.0)
+- **Processor:** Raspberry Pi 5
 - **IMU:** BMI270 (built into OAK-D Lite)
 
 ## License
