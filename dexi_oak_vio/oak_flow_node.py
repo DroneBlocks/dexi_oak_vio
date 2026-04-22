@@ -142,6 +142,14 @@ class OakFlowNode(Node):
         # Build current features dict
         current = {f.id: (f.position.x, f.position.y) for f in features}
 
+        # Debug: log feature count periodically
+        if not hasattr(self, '_debug_counter'):
+            self._debug_counter = 0
+        self._debug_counter += 1
+        if self._debug_counter % 30 == 0:
+            matched = sum(1 for fid in current if fid in self.prev_features) if self.prev_features else 0
+            self.get_logger().info(f'Features: {len(current)} tracked, {matched} matched (need {self.min_features})')
+
         if not self.prev_features or self.prev_time is None:
             self.prev_features = current
             self.prev_time = timestamp
