@@ -80,11 +80,13 @@ Each phase is a meaningful improvement and lets us validate the stack incrementa
 
 ### Prerequisites
 
-depthai must be installed system-wide on the Pi:
+depthai must be installed system-wide on the Pi. **Pin to the 2.x series** — this package uses the v2 API (XLinkOut, etc.), which was removed in depthai 3.x:
 
 ```bash
-pip install depthai numpy
+pip install 'depthai>=2.24.0,<3.0.0' numpy
 ```
+
+On Bookworm, pip may require `--break-system-packages` for system-wide install.
 
 Set up udev rules for OAK camera:
 
