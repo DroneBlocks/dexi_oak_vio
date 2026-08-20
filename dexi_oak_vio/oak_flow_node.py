@@ -116,7 +116,12 @@ class OakFlowNode(Node):
                 q_imu = device.getOutputQueue("imu", maxSize=50, blocking=False)
 
                 while self.running and rclpy.ok():
-                    # Process IMU
+                    # Block until the next feature packet (~30 Hz from the VPU)
+                    # instead of busy-polling tryGet(); this sleeps the thread
+                    # between frames rather than pegging a core.
+                    features_data = q_features.get()
+
+                    # Drain any IMU packets that arrived up to now (non-blocking)
                     while True:
                         imu_data = q_imu.tryGet()
                         if imu_data is None:
@@ -126,8 +131,6 @@ class OakFlowNode(Node):
                             ts = gyro.getTimestamp().total_seconds()
                             self.gyro_buffer.add(ts, [gyro.x, gyro.y, gyro.z])
 
-                    # Process features
-                    features_data = q_features.tryGet()
                     if features_data is not None:
                         self.process_features(features_data)
 
