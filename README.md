@@ -1,30 +1,92 @@
 # DEXI Oak VIO
 
-OAK-D Lite visual-inertial odometry for PX4 position hold on Raspberry Pi 5.
+OAK-D Lite stereo visual-inertial odometry for PX4 EKF2 position fusion on Raspberry Pi 5.
 
 ## Overview
 
-This package provides optical flow velocity estimation using the OAK-D Lite camera's hardware feature tracker. It's designed to run on Raspberry Pi 5 alongside the DEXI platform, publishing velocity data that can be used by PX4 for improved position hold.
+This package provides **stereo VIO** (Visual-Inertial Odometry) using the OAK-D Lite's stereo cameras + BMI270 IMU + hardware feature tracker. It publishes position estimates directly to PX4 EKF2 to reduce horizontal drift when flying indoors with optical flow.
+
+It is designed to **complement** the ARK Flow sensor, not replace it:
+- **ARK Flow** → velocity + altitude (high rate, low latency)
+- **OAK VIO** → position (corrects drift that pure velocity integration can't)
 
 **Target Platform:** Raspberry Pi 5 (Debian Bookworm, ROS2 Jazzy)
 
+## Where VIO Fits: Indoor Positioning Options
+
+| System | Type | Drift | PX4 category |
+|--------|------|-------|-------------|
+| ARK Flow | Relative | Fast | Optical flow |
+| **OAK VIO (this package)** | **Relative** | **Slow** | **External vision** |
+| AprilTags | Absolute (when visible) | None | External vision |
+| UWB | Absolute | None | External vision |
+| OptiTrack / Vicon | Absolute | None | External vision |
+| GPS | Global | None | Global position |
+
+VIO reduces drift compared to optical flow alone, but is still relative — position is tracked from startup, not from a fixed room reference. For drift-free absolute positioning, VIO can be combined with AprilTags or another absolute source (future work).
+
+## VIO vs SLAM
+
+VIO and SLAM are related but do different jobs. This package does VIO. SLAM is a potential future direction.
+
+| | VIO (what this package does) | SLAM |
+|---|---|---|
+| **Purpose** | "How far have I moved?" | "Where am I on a map, and build the map as I go?" |
+| **State tracked** | Current pose (6DOF) | Current pose + a map of landmarks/features |
+| **Memory** | Just the last frame or two | The full map of the environment |
+| **Loop closure** | No — revisiting a spot doesn't fix drift | Yes — recognizing a previously-mapped area corrects accumulated drift |
+| **Drift** | Accumulates over time | Bounded when loop closures happen |
+| **Compute cost** | Low (a few hundred features, one PnP solve) | High (map storage, feature matching across map, bundle adjustment) |
+| **Good for** | Real-time control inputs to a flight controller | Mapping an environment, long-duration navigation |
+
+**VIO in this package**: Matches 3D features between consecutive frames to compute how the camera moved. Simple, fast, fits in ~50% of one Pi 5 core with most work on the Myriad X VPU. Drifts linearly with distance traveled.
+
+**SLAM on the same hardware**: Would build up a persistent map of features in the room. When the drone flies back over a previously-seen area, SLAM recognizes it and snaps the position back, correcting accumulated drift. That's called **loop closure** — and it's the thing VIO can't do.
+
+### Could we do SLAM on OAK-D Lite + Pi 5?
+
+Yes, it's feasible. A few open-source options exist that target exactly this kind of hardware:
+
+- **ORB-SLAM3** — Mature C++ library, supports stereo + IMU. Known to run on Pi 5, but tuning and integration are non-trivial. Uses the CPU fairly heavily.
+- **RTAB-Map** — ROS2-native, stereo + IMU mode, includes loop closure and occupancy grid mapping. Runs on Pi 4 in published benchmarks, so Pi 5 has headroom. Heavier than VIO but manageable.
+- **Kimera-VIO** — Research-grade, lightweight, real-time focused. Less mature tooling.
+
+**The tradeoff of going SLAM**:
+- ✅ Drift-free position hold in a familiar room (after loop closure)
+- ✅ A usable map for path planning and obstacle avoidance later
+- ✅ Could reduce or eliminate the need for AprilTags
+- ❌ Noticeably more CPU / RAM
+- ❌ First-time-through-a-space has the same drift as VIO (no map yet)
+- ❌ Harder to debug when things go wrong
+- ❌ Map quality depends on texture and lighting — blank walls break it
+
+**Recommended progression**:
+1. **Phase 1 (now)** — Stereo VIO, what this package does
+2. **Phase 2** — Add AprilTags for absolute corrections
+3. **Phase 3 (future exploration)** — RTAB-Map or ORB-SLAM3 for map-based localization, potentially replacing tags
+
+Each phase is a meaningful improvement and lets us validate the stack incrementally.
+
 ## Features
 
-- **Hardware-accelerated feature tracking** - Runs on OAK-D's Myriad X VPU, minimal CPU load (~1-2%)
-- **IMU rotation compensation** - Gyroscope data removes rotation artifacts from optical flow
-- **ROS2 integration** - Publishes standard `TwistWithCovarianceStamped` messages
-- **Standalone node** - Direct camera connection, no depthai_ros dependency required
-- **PX4 bridge** - Optional bridge to send velocity to PX4 via uXRCE-DDS
+- **Hardware-accelerated feature tracking** - Runs on OAK-D's Myriad X VPU, minimal Pi CPU load
+- **Stereo depth + PnP** - 3D features give scale, PnP solves camera motion
+- **IMU rotation constraint** - Gyro provides rotation directly, PnP solves translation only
+- **Stationary detection** - Zero drift when camera is not moving (accel variance test)
+- **Direct PX4 publishing** - Publishes `VehicleOdometry` to `/fmu/in/vehicle_visual_odometry`
+- **Origin alignment** - Locks VIO frame to EKF2 frame on first position fix
 
 ## Installation
 
 ### Prerequisites
 
-depthai must be installed system-wide on the Pi:
+depthai must be installed system-wide on the Pi. **Pin to the 2.x series** — this package uses the v2 API (XLinkOut, etc.), which was removed in depthai 3.x:
 
 ```bash
-pip install depthai numpy
+pip install 'depthai>=2.24.0,<3.0.0' numpy
 ```
+
+On Bookworm, pip may require `--break-system-packages` for system-wide install.
 
 Set up udev rules for OAK camera:
 

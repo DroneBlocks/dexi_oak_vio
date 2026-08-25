@@ -22,6 +22,9 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
+            # Stereo VIO node - publishes position directly to PX4 EKF2
+            'oak_vio_node = dexi_oak_vio.oak_vio_node:main',
+
             # Standalone OAK-D flow node (uses depthai directly, no depthai_ros needed)
             'oak_flow_node = dexi_oak_vio.oak_flow_node:main',
 
